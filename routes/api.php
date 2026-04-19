@@ -33,11 +33,14 @@ use App\Http\Controllers\API\VirtualNumberController;
 use App\Http\Controllers\API\Admin\ManageTransactionsController;
 use App\Http\Controllers\API\Admin\ManageServiceUpdateController;
 use App\Http\Controllers\API\SiteSettingController;
+use App\Http\Controllers\API\PasswordResetController;
 
 
 
 Route::post('/register', [RegisterController::class, 'register']);
 Route::post('/login', [LoginController::class, 'login']);
+Route::post('/forgot-password', [PasswordResetController::class, 'forgotPassword']);
+Route::post('/reset-password', [PasswordResetController::class, 'resetPassword']);
 
 Route::get('/all-services', [ServiceController::class, 'allServices']);
 Route::get('/currencies', [CurrencyController::class, 'fetchCurrencies']);

@@ -93,7 +93,7 @@ class RegisterController extends Controller
                 'password' => Hash::make($validated['password']),
                 'currency' => $currency,
                 'referred_by' => $referredBy,
-                'status' => 'active',
+                'status' => 1,
             ]);
 
             // ✅ Create referral record if referred

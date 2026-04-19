@@ -52,7 +52,7 @@ class OrderController extends Controller
             $user = Auth::user();
 
             // 1. Check if user is active/verified
-            if ($user->status !== 'active') {
+            if ((int) $user->status !== 1) {
                 DB::rollBack();
                 return response()->json([
                     'status' => 'error',

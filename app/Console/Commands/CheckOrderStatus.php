@@ -21,7 +21,7 @@ class CheckOrderStatus extends Command
         $limit = (int) $this->option('limit');
         
         // Get all pending/in-progress/partial orders with API order IDs
-        $orders = Order::whereIn('status', ['processing', 'in-progress', 'partial'])
+        $orders = Order::whereIn('status', ['pending', 'processing', 'in-progress', 'partial'])
             ->whereNotNull('api_order_id')
             ->with(['service.provider'])
             ->limit($limit)
@@ -133,7 +133,7 @@ class CheckOrderStatus extends Command
     private function mapProviderStatus($providerStatus)
     {
         $statusMap = [
-            'pending' => 'processing',
+            'pending' => 'pending',
             'processing' => 'processing',
             'in_progress' => 'in-progress',
             'in-progress' => 'in-progress',
@@ -146,7 +146,7 @@ class CheckOrderStatus extends Command
         ];
 
         $status = strtolower($providerStatus);
-        return $statusMap[$status] ?? 'processing';
+        return $statusMap[$status] ?? 'pending';
     }
 
     private function createNotification(Order $order, $title, $message)

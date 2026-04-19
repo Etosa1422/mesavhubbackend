@@ -25,7 +25,7 @@ class SyncProviderOrders extends Command
         }
 
         // Get orders that need syncing (pending, in-progress, partial)
-        $orders = Order::whereIn('status', ['processing', 'in-progress', 'partial'])
+        $orders = Order::whereIn('status', ['pending', 'processing', 'in-progress', 'partial'])
             ->whereNotNull('api_order_id')
             ->limit(50) // Process in batches
             ->pluck('api_order_id')
@@ -97,7 +97,7 @@ class SyncProviderOrders extends Command
     private function mapStatus($status)
     {
         $statusMap = [
-            'pending' => 'processing',
+            'pending' => 'pending',
             'processing' => 'processing',
             'in_progress' => 'in-progress',
             'in-progress' => 'in-progress',
@@ -109,7 +109,7 @@ class SyncProviderOrders extends Command
             'failed' => 'failed'
         ];
 
-        return $statusMap[strtolower($status)] ?? 'processing';
+        return $statusMap[strtolower($status)] ?? 'pending';
     }
 }
 

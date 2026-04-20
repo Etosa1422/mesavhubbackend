@@ -85,40 +85,55 @@ class CheckOrderStatus extends Command
 
     private function checkProviderStatus(Order $order)
     {
-        $provider = ApiProvider::where('status', 1)->first();
-        
+        $provider = ApiProvider::where('id', optional($order->service)->api_provider_id)
+            ->where('status', 1)
+            ->first();
+
+        if (!$provider) {
+            // Fallback: try any active provider
+            $provider = ApiProvider::where('status', 1)->first();
+        }
+
         if (!$provider) {
             $this->warn('  ⚠ No active provider found');
             return null;
         }
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $provider->api_key,
-                'Accept' => 'application/json',
-            ])
-                ->timeout(30)
-                ->post($provider->url . '/order/status', [
-                    'order_id' => $order->api_order_id
+            // Standard SMM panel API format (same as order creation)
+            $response = Http::timeout(30)
+                ->asForm()
+                ->post($provider->url, [
+                    'key'    => $provider->api_key,
+                    'action' => 'status',
+                    'order'  => $order->api_order_id,
                 ]);
 
             if ($response->successful()) {
                 $data = $response->json();
-                
+
+                // Provider returned an error field
+                if (isset($data['error'])) {
+                    Log::warning("Provider returned error for order #{$order->id}", [
+                        'error' => $data['error']
+                    ]);
+                    return null;
+                }
+
                 // Map provider response to our status format
                 $status = $this->mapProviderStatus($data['status'] ?? 'processing');
-                
+
                 return [
-                    'status' => $status,
-                    'remains' => $data['remains'] ?? $order->remains,
-                    'start_count' => $data['start_count'] ?? $data['start_counter'] ?? $order->start_counter,
-                    'status_description' => $data['status_description'] ?? $data['status'] ?? null
+                    'status'             => $status,
+                    'remains'            => $data['remains'] ?? $order->remains,
+                    'start_count'        => $data['start_count'] ?? $data['start_counter'] ?? $order->start_counter,
+                    'status_description' => $data['status_description'] ?? $data['status'] ?? null,
                 ];
             }
 
-            Log::warning("Provider API returned error for order #{$order->id}", [
-                'status' => $response->status(),
-                'response' => $response->body()
+            Log::warning("Provider API returned HTTP error for order #{$order->id}", [
+                'http_status' => $response->status(),
+                'response'    => $response->body(),
             ]);
 
             return null;
@@ -133,20 +148,22 @@ class CheckOrderStatus extends Command
     private function mapProviderStatus($providerStatus)
     {
         $statusMap = [
-            'pending' => 'pending',
-            'processing' => 'processing',
+            'pending'     => 'pending',
+            'processing'  => 'processing',
             'in_progress' => 'in-progress',
             'in-progress' => 'in-progress',
-            'partial' => 'partial',
-            'completed' => 'completed',
-            'canceled' => 'cancelled',
-            'cancelled' => 'cancelled',
-            'refunded' => 'refunded',
-            'failed' => 'failed'
+            'in progress' => 'in-progress',
+            'inprogress'  => 'in-progress',
+            'partial'     => 'partial',
+            'completed'   => 'completed',
+            'canceled'    => 'cancelled',
+            'cancelled'   => 'cancelled',
+            'refunded'    => 'refunded',
+            'failed'      => 'failed',
         ];
 
         $status = strtolower($providerStatus);
-        return $statusMap[$status] ?? 'pending';
+        return $statusMap[$status] ?? 'processing';
     }
 
     private function createNotification(Order $order, $title, $message)

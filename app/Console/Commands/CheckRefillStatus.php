@@ -92,30 +92,38 @@ class CheckRefillStatus extends Command
     private function checkProviderRefillStatus($provider, Order $order)
     {
         try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $provider->api_key,
-                'Accept' => 'application/json',
-            ])
-                ->timeout(30)
-                ->post($provider->url . '/order/refill/status', [
-                    'refill_id' => $order->api_refill_id
+            // Standard SMM panel API format
+            $response = Http::timeout(30)
+                ->asForm()
+                ->post($provider->url, [
+                    'key'    => $provider->api_key,
+                    'action' => 'refill_status',
+                    'refill' => $order->api_refill_id,
                 ]);
 
             if ($response->successful()) {
                 $data = $response->json();
+
+                if (isset($data['error'])) {
+                    Log::warning("Provider returned error for refill #{$order->api_refill_id}", [
+                        'error' => $data['error']
+                    ]);
+                    return 'processing';
+                }
+
                 $status = strtolower($data['status'] ?? 'processing');
-                
+
                 if (in_array($status, ['completed', 'complete', 'done'])) {
                     return 'completed';
-                } elseif (in_array($status, ['failed', 'canceled', 'cancelled'])) {
+                } elseif (in_array($status, ['failed', 'canceled', 'cancelled', 'rejected'])) {
                     return 'failed';
                 } else {
                     return 'processing';
                 }
             }
 
-            return 'processing'; // Default to processing if API call fails
-            
+            return 'processing';
+
         } catch (\Exception $e) {
             Log::error("Provider API exception for refill #{$order->api_refill_id}", [
                 'error' => $e->getMessage()

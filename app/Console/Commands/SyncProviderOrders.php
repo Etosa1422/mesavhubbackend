@@ -37,14 +37,13 @@ class SyncProviderOrders extends Command
         }
 
         try {
-            // Call provider's multi-status endpoint if available
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $provider->api_key,
-                'Accept' => 'application/json',
-            ])
-                ->timeout(60)
-                ->post($provider->url . '/orders/status', [
-                    'order_ids' => implode(',', $orders)
+            // Standard SMM panel API format for multi-order status check
+            $response = Http::timeout(60)
+                ->asForm()
+                ->post($provider->url, [
+                    'key'    => $provider->api_key,
+                    'action' => 'status',
+                    'orders' => implode(',', $orders),
                 ]);
 
             if ($response->successful()) {
@@ -52,24 +51,30 @@ class SyncProviderOrders extends Command
                 
                 $updated = 0;
                 foreach ($statuses as $apiOrderId => $statusData) {
+                    // Skip orders that returned an error from the provider
+                    if (isset($statusData['error'])) {
+                        Log::warning("Provider error for api_order_id {$apiOrderId}: {$statusData['error']}");
+                        continue;
+                    }
+
                     $order = Order::where('api_order_id', $apiOrderId)->first();
-                    
+
                     if ($order) {
                         $oldStatus = $order->status;
                         $order->status = $this->mapStatus($statusData['status'] ?? $order->status);
                         $order->remains = $statusData['remains'] ?? $order->remains;
                         $order->start_counter = $statusData['start_count'] ?? $statusData['start_counter'] ?? $order->start_counter;
-                        
+
                         if ($oldStatus !== $order->status) {
-                            $order->status_description = $statusData['status_description'] ?? $statusData['status'] ?? null;
+                            $order->status_description = $statusData['status'] ?? null;
                         }
-                        
+
                         if ($order->status === 'completed') {
                             $order->remains = 0;
                         }
-                        
+
                         $order->save();
-                        
+
                         if ($oldStatus !== $order->status) {
                             $updated++;
                         }
@@ -97,19 +102,21 @@ class SyncProviderOrders extends Command
     private function mapStatus($status)
     {
         $statusMap = [
-            'pending' => 'pending',
-            'processing' => 'processing',
+            'pending'     => 'pending',
+            'processing'  => 'processing',
             'in_progress' => 'in-progress',
             'in-progress' => 'in-progress',
-            'partial' => 'partial',
-            'completed' => 'completed',
-            'canceled' => 'cancelled',
-            'cancelled' => 'cancelled',
-            'refunded' => 'refunded',
-            'failed' => 'failed'
+            'in progress' => 'in-progress',
+            'inprogress'  => 'in-progress',
+            'partial'     => 'partial',
+            'completed'   => 'completed',
+            'canceled'    => 'cancelled',
+            'cancelled'   => 'cancelled',
+            'refunded'    => 'refunded',
+            'failed'      => 'failed',
         ];
 
-        return $statusMap[strtolower($status)] ?? 'pending';
+        return $statusMap[strtolower($status)] ?? 'processing';
     }
 }
 

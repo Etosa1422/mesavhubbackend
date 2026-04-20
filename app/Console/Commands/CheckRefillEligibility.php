@@ -121,18 +121,19 @@ class CheckRefillEligibility extends Command
         }
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $provider->api_key,
-                'Accept' => 'application/json',
-            ])
-                ->timeout(30)
-                ->post($provider->url . '/order/status', [
-                    'order_id' => $order->api_order_id
+            // Standard SMM panel API format
+            $response = Http::timeout(30)
+                ->asForm()
+                ->post($provider->url, [
+                    'key'    => $provider->api_key,
+                    'action' => 'status',
+                    'order'  => $order->api_order_id,
                 ]);
 
             if ($response->successful()) {
                 $data = $response->json();
-                // Return the current count (remains or start_count based on provider)
+                if (isset($data['error'])) return null;
+                // Return the current count (start_count from provider response)
                 return $data['start_count'] ?? $data['start_counter'] ?? null;
             }
 
@@ -155,20 +156,25 @@ class CheckRefillEligibility extends Command
                 return false;
             }
 
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $provider->api_key,
-                'Accept' => 'application/json',
-            ])
-                ->timeout(30)
-                ->post($provider->url . '/order/refill', [
-                    'order_id' => $order->api_order_id
+            // Standard SMM panel API format
+            $response = Http::timeout(30)
+                ->asForm()
+                ->post($provider->url, [
+                    'key'    => $provider->api_key,
+                    'action' => 'refill',
+                    'order'  => $order->api_order_id,
                 ]);
 
             if ($response->successful()) {
                 $data = $response->json();
-                
+
+                if (isset($data['error'])) {
+                    $this->error("  ✗ Provider refill error for order #{$order->id}: {$data['error']}");
+                    return false;
+                }
+
                 $order->refill_status = 'pending';
-                $order->api_refill_id = $data['refill_id'] ?? $data['order_id'] ?? null;
+                $order->api_refill_id = $data['refill'] ?? $data['refill_id'] ?? null;
                 $order->refilled_at = Carbon::now();
                 $order->save();
 

@@ -12,37 +12,31 @@ Artisan::command('inspire', function () {
 Schedule::command('orders:check-status')
     ->everyFiveMinutes()
     ->withoutOverlapping()
-    ->runInBackground()
     ->appendOutputTo(storage_path('logs/cron-orders.log'));
 
 Schedule::command('orders:check-refill-status')
     ->everyThirtyMinutes()
     ->withoutOverlapping()
-    ->runInBackground()
     ->appendOutputTo(storage_path('logs/cron-refills.log'));
 
 Schedule::command('orders:check-refills')
     ->everySixHours()
     ->withoutOverlapping()
-    ->runInBackground()
     ->appendOutputTo(storage_path('logs/cron-refill-check.log'));
 
 Schedule::command('provider:sync-orders')
     ->everyTenMinutes()
     ->withoutOverlapping()
-    ->runInBackground()
     ->appendOutputTo(storage_path('logs/cron-sync.log'));
 
 Schedule::command('orders:process-refunds')
     ->hourly()
     ->withoutOverlapping()
-    ->runInBackground()
     ->appendOutputTo(storage_path('logs/cron-refunds.log'));
 
 Schedule::command('notifications:send')
-    ->everyTwoMinutes()
+    ->everyFiveMinutes()
     ->withoutOverlapping()
-    ->runInBackground()
     ->appendOutputTo(storage_path('logs/cron-notifications.log'));
 
 Schedule::command('database:cleanup')

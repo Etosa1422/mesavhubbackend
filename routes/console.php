@@ -12,39 +12,39 @@ Artisan::command('inspire', function () {
 Schedule::command('orders:check-status')
     ->everyFiveMinutes()
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-orders.log'));
 
 Schedule::command('orders:check-refill-status')
     ->everyThirtyMinutes()
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-refills.log'));
 
 Schedule::command('orders:check-refills')
     ->everySixHours()
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-refill-check.log'));
 
 Schedule::command('provider:sync-orders')
     ->everyTenMinutes()
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-sync.log'));
 
 Schedule::command('orders:process-refunds')
     ->hourly()
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-refunds.log'));
 
 Schedule::command('notifications:send')
     ->everyFiveMinutes()
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-notifications.log'));
 
 Schedule::command('database:cleanup')
     ->dailyAt('02:00')
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-cleanup.log'));
 
 Schedule::command('tickets:auto-close')
     ->dailyAt('03:00')
     ->withoutOverlapping()
-    ->appendOutputTo('/dev/stdout');
+    ->appendOutputTo(storage_path('logs/cron-tickets-close.log'));

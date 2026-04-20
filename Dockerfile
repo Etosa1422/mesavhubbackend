@@ -24,8 +24,12 @@ RUN composer install --no-dev --optimize-autoloader
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
+# Copy and prepare startup script
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
 # Expose port 9000 (Railway default HTTP port)
 EXPOSE 9000
 
-# Start Laravel’s built-in server binding to 0.0.0.0:9000
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=9000"]
+# Start scheduler + web server
+CMD ["/start.sh"]

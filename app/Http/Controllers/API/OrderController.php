@@ -117,10 +117,10 @@ class OrderController extends Controller
 
             if ($user->balance < $price) {
                 DB::rollBack();
-                $needed = $price - $user->balance;
+                $needed = round($price - $user->balance, 2);
                 return response()->json([
                     'status' => 'error',
-                    'message' => "Insufficient balance. You need \${$needed} more to place this order.",
+                    'message' => 'Insufficient balance.',
                     'required_amount' => $price,
                     'current_balance' => $user->balance,
                     'shortfall' => $needed

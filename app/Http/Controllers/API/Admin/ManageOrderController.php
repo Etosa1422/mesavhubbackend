@@ -103,10 +103,36 @@ class ManageOrderController extends Controller
             ]);
 
             $order = Order::findOrFail($id);
-            $order->status = $request->status;
+            $previousStatus = $order->status;
+            $newStatus = strtolower($request->status);
+            $order->status = $newStatus;
             $order->status_description = $request->statusDescription;
             $order->reason = $request->reason; // Fixed: was status_reason
             $order->save();
+
+            // Refund user balance when admin cancels a non-cancelled order
+            if (
+                $newStatus === 'cancelled' &&
+                strtolower($previousStatus) !== 'cancelled' &&
+                strtolower($previousStatus) !== 'refunded' &&
+                $order->price > 0
+            ) {
+                $order->user->increment('balance', $order->price);
+
+                \App\Models\Transaction::create([
+                    'user_id'          => $order->user_id,
+                    'transaction_id'   => 'REFUND_' . time() . '_' . $order->id,
+                    'transaction_type' => 'Credit',
+                    'amount'           => $order->price,
+                    'charge'           => 0,
+                    'description'      => "Refund for cancelled Order #{$order->id}",
+                    'status'           => 'completed',
+                    'meta'             => json_encode([
+                        'order_id'   => $order->id,
+                        'reason'     => $request->reason ?? 'Admin cancelled',
+                    ]),
+                ]);
+            }
 
             $order->load(['user', 'service', 'category']);
 

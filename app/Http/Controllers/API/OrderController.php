@@ -296,9 +296,9 @@ class OrderController extends Controller
         $query = Order::with(['service:id,service_title', 'category:id,category_title'])
             ->where('user_id', $user->id);
 
-        // Filter by status
+        // Filter by status (case-insensitive to handle legacy mixed-case records)
         if ($status !== 'all') {
-            $query->where('status', $status);
+            $query->whereRaw('LOWER(status) = ?', [strtolower($status)]);
         }
 
         // Search functionality - FIXED: use correct column name
@@ -357,13 +357,13 @@ class OrderController extends Controller
                 'last_page' => $orders->lastPage(),
             ],
             'status_counts' => [
-                'all' => Order::where('user_id', $user->id)->count(),
-                'pending' => Order::where('user_id', $user->id)->where('status', 'pending')->count(),
-                'processing' => Order::where('user_id', $user->id)->where('status', 'processing')->count(),
-                'completed' => Order::where('user_id', $user->id)->where('status', 'completed')->count(),
-                'partial' => Order::where('user_id', $user->id)->where('status', 'partial')->count(),
-                'cancelled' => Order::where('user_id', $user->id)->where('status', 'cancelled')->count(),
-                'failed' => Order::where('user_id', $user->id)->where('status', 'failed')->count(),
+                'all'        => Order::where('user_id', $user->id)->count(),
+                'pending'    => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['pending'])->count(),
+                'processing' => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['processing'])->count(),
+                'completed'  => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['completed'])->count(),
+                'partial'    => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['partial'])->count(),
+                'cancelled'  => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['cancelled'])->count(),
+                'failed'     => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['failed'])->count(),
             ]
         ]);
     }

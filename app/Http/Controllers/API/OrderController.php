@@ -357,13 +357,14 @@ class OrderController extends Controller
                 'last_page' => $orders->lastPage(),
             ],
             'status_counts' => [
-                'all'        => Order::where('user_id', $user->id)->count(),
-                'pending'    => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['pending'])->count(),
-                'processing' => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['processing'])->count(),
-                'completed'  => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['completed'])->count(),
-                'partial'    => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['partial'])->count(),
-                'cancelled'  => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['cancelled'])->count(),
-                'failed'     => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['failed'])->count(),
+                'all'         => Order::where('user_id', $user->id)->count(),
+                'pending'     => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['pending'])->count(),
+                'processing'  => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['processing'])->count(),
+                'in-progress' => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['in-progress'])->count(),
+                'completed'   => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['completed'])->count(),
+                'partial'     => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['partial'])->count(),
+                'cancelled'   => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['cancelled'])->count(),
+                'failed'      => Order::where('user_id', $user->id)->whereRaw('LOWER(status) = ?', ['failed'])->count(),
             ]
         ]);
     }

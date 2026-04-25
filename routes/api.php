@@ -122,10 +122,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Payment endpoints
     Route::post('/payment/initiate', [PaymentController::class, 'initiatePayment']);
     Route::get('/payment/history', [PaymentController::class, 'paymentHistory']);
+    Route::post('/payment/verify', [PaymentController::class, 'verifyPayment']);
 });
 
 
-Route::post('/payment/verify', [PaymentController::class, 'verifyPayment']);
 Route::post('/payment/callback', [PaymentController::class, 'handleCallback']);
 Route::post('/payment/kora/webhook', [PaymentController::class, 'handleKoraWebhook']);
 

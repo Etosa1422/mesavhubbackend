@@ -256,31 +256,15 @@ class PaymentController extends Controller
                     $payment->update(['status' => 'pending']);
                 }
             } else {
-                // For Paystack and other payment methods
-                if ($normalizedStatus === 'successful' || $normalizedStatus === 'completed') {
-                    $payment->update(['status' => 'completed']);
-
-                    // Credit user's balance
-                    $user = $payment->user;
-                    $user->balance += $payment->amount;
-                    $user->save();
-
-                    Log::info('💰 Payment completed successfully', [
-                        'transaction_id' => $payment->id,
-                        'user_id' => $user->id,
-                        'amount' => $payment->amount,
-                        'new_balance' => $user->balance
-                    ]);
-
-                    // 💰 Calculate and credit affiliate commission
-                    $this->calculateAffiliateCommission($user, $payment->amount);
-                } elseif (in_array($normalizedStatus, ['cancelled', 'failed'])) {
-                    $payment->update(['status' => 'failed']);
-                    Log::info('❌ Payment failed', ['transaction_id' => $payment->id]);
-                } else {
-                    $payment->update(['status' => 'pending']);
-                    Log::info('⏳ Payment pending', ['transaction_id' => $payment->id, 'status' => $normalizedStatus]);
-                }
+                // Unknown method — reject, never trust client-supplied status
+                Log::warning('⚠️ handleCallback called for unsupported method', [
+                    'payment_method' => $payment->payment_method,
+                    'reference'      => $reference,
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unsupported payment method for this callback.',
+                ], 400);
             }
 
             return response()->json([
@@ -334,6 +318,15 @@ class PaymentController extends Controller
                     'success' => false,
                     'message' => 'Transaction not found',
                 ], 404);
+            }
+
+            // Ensure the transaction belongs to the authenticated user
+            if ($transaction->user_id !== Auth::id()) {
+                Log::warning('⚠️ Unauthorized payment verify attempt', [
+                    'transaction_user_id' => $transaction->user_id,
+                    'requesting_user_id'  => Auth::id(),
+                ]);
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
             }
 
             // ✅ If already completed, return existing data
@@ -408,12 +401,14 @@ class PaymentController extends Controller
                 $koraStatus   = strtolower($verification['data']['status'] ?? '');
 
                 if ($koraStatus === 'success') {
-                    $transaction->update([
-                        'status' => 'completed',
-                        'meta'   => json_encode($verification['data']),
-                    ]);
+                    $affected = Transaction::where('id', $transaction->id)
+                        ->where('status', '!=', 'completed')
+                        ->update([
+                            'status' => 'completed',
+                            'meta'   => json_encode($verification['data']),
+                        ]);
 
-                    if ($transaction->user) {
+                    if ($affected > 0 && $transaction->user) {
                         $transaction->user->increment('balance', $transaction->amount);
                         $this->calculateAffiliateCommission($transaction->user, $transaction->amount);
 
@@ -427,23 +422,16 @@ class PaymentController extends Controller
                     Log::info('❌ Korapay payment not confirmed', ['kora_status' => $koraStatus]);
                 }
             } else {
-                // Other payment methods
-                $newStatus = in_array($validated['status'], ['successful', 'completed'])
-                    ? 'completed' : 'failed';
-
-                $transaction->update(['status' => $newStatus]);
-
-                if ($newStatus === 'completed' && $transaction->user) {
-                    $transaction->user->increment('balance', $transaction->amount);
-                    Log::info('💰 Balance credited (direct update)', [
-                        'transaction_id' => $transaction->id,
-                        'user_id' => $transaction->user_id,
-                        'amount' => $transaction->amount
-                    ]);
-
-                    // 💰 Calculate and credit affiliate commission
-                    $this->calculateAffiliateCommission($transaction->user, $transaction->amount);
-                }
+                // Unknown or unsupported payment method — never trust client status
+                Log::warning('⚠️ verifyPayment called for unsupported method', [
+                    'payment_method' => $transaction->payment_method,
+                    'transaction_id' => $transaction->id,
+                    'user_id'        => Auth::id(),
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Automatic verification is not supported for this payment method.',
+                ], 400);
             }
 
             $transaction->refresh();
@@ -649,10 +637,17 @@ class PaymentController extends Controller
                 return response()->json(['message' => 'Amount mismatch'], 200);
             }
 
-            $transaction->update([
-                'status' => 'completed',
-                'meta'   => json_encode($verification['data']),
-            ]);
+            $affected = Transaction::where('id', $transaction->id)
+                ->where('status', '!=', 'completed')
+                ->update([
+                    'status' => 'completed',
+                    'meta'   => json_encode($verification['data']),
+                ]);
+
+            if ($affected === 0) {
+                Log::info('⚠️ Korapay webhook: already processed by another request', ['reference' => $reference]);
+                return response()->json(['message' => 'Already processed'], 200);
+            }
 
             $user = $transaction->user;
             if ($user) {
@@ -704,7 +699,7 @@ class PaymentController extends Controller
                         'email' => $data['customer']['email'],
                     ],
                     'notification_url' => $backendUrl . '/api/payment/kora/webhook',
-                    'redirect_url'     => $frontendUrl . '/payment/callback',
+                    'redirect_url'     => $frontendUrl . '/dashboard/payment/callback',
                     'channels'         => ['card', 'bank_transfer'],
                 ],
             ]);

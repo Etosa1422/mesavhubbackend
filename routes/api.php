@@ -127,6 +127,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 Route::post('/payment/verify', [PaymentController::class, 'verifyPayment']);
 Route::post('/payment/callback', [PaymentController::class, 'handleCallback']);
+Route::post('/payment/kora/webhook', [PaymentController::class, 'handleKoraWebhook']);
 
 
 

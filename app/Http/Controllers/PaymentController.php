@@ -25,7 +25,7 @@ class PaymentController extends Controller
     {
         $validated = $request->validate([
             'amount' => 'required|numeric|min:1',
-            'payment_method' => 'required|string|in:flutterwave,paystack',
+            'payment_method' => 'required|string|in:flutterwave,paystack,kora',
         ]);
 
         // Check if this payment method is enabled by admin
@@ -49,6 +49,13 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Paystack payment is not properly configured',
+            ], 500);
+        }
+
+        if ($validated['payment_method'] === 'kora' && empty(config('services.korapay.secret_key'))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Korapay payment is not properly configured',
             ], 500);
         }
 
@@ -214,6 +221,40 @@ class PaymentController extends Controller
                     $payment->update(['status' => 'pending']);
                     Log::info('⏳ Payment pending', ['transaction_id' => $payment->id, 'status' => $normalizedStatus]);
                 }
+            } elseif ($payment->payment_method === 'kora') {
+                // Handle Korapay redirect callback — verify server-side
+                if (in_array($normalizedStatus, ['success', 'successful', 'completed'])) {
+                    $verification = $this->verifyKoraPayment($reference);
+                    $koraStatus   = strtolower($verification['data']['status'] ?? '');
+                    $amountPaid   = $verification['data']['amount'] ?? 0;
+
+                    if ($koraStatus !== 'success') {
+                        throw new \Exception('Payment not confirmed by Korapay. Status: ' . $koraStatus);
+                    }
+
+                    if (abs($amountPaid - $payment->amount) > 0.01) {
+                        throw new \Exception('Korapay amount mismatch. Paid: ' . $amountPaid . ', Expected: ' . $payment->amount);
+                    }
+
+                    $payment->update([
+                        'status' => 'completed',
+                        'meta'   => json_encode($verification['data']),
+                    ]);
+
+                    $user = $payment->user;
+                    $user->increment('balance', $payment->amount);
+                    $this->calculateAffiliateCommission($user, $payment->amount);
+
+                    Log::info('💰 Korapay payment completed via callback', [
+                        'transaction_id' => $payment->id,
+                        'user_id'        => $user->id,
+                        'amount'         => $payment->amount,
+                    ]);
+                } elseif (in_array($normalizedStatus, ['cancelled', 'failed'])) {
+                    $payment->update(['status' => 'failed']);
+                } else {
+                    $payment->update(['status' => 'pending']);
+                }
             } else {
                 // For Paystack and other payment methods
                 if ($normalizedStatus === 'successful' || $normalizedStatus === 'completed') {
@@ -273,7 +314,7 @@ class PaymentController extends Controller
 
             $validated = $request->validate([
                 'transaction_id' => 'required|string',
-                'status' => 'required|string|in:successful,completed,failed,cancelled,pending',
+                'status' => 'required|string|in:successful,completed,success,failed,cancelled,pending',
             ]);
 
             // 🔎 Flexible transaction lookup
@@ -358,6 +399,33 @@ class PaymentController extends Controller
                         'verification_response' => $verification
                     ]);
                 }
+            } elseif (
+                $transaction->payment_method === 'kora' &&
+                in_array($validated['status'], ['successful', 'completed', 'success'])
+            ) {
+                // Verify with Korapay API
+                $verification = $this->verifyKoraPayment($transaction->transaction_id);
+                $koraStatus   = strtolower($verification['data']['status'] ?? '');
+
+                if ($koraStatus === 'success') {
+                    $transaction->update([
+                        'status' => 'completed',
+                        'meta'   => json_encode($verification['data']),
+                    ]);
+
+                    if ($transaction->user) {
+                        $transaction->user->increment('balance', $transaction->amount);
+                        $this->calculateAffiliateCommission($transaction->user, $transaction->amount);
+
+                        Log::info('💰 Korapay balance credited (verify endpoint)', [
+                            'user_id' => $transaction->user_id,
+                            'amount'  => $transaction->amount,
+                        ]);
+                    }
+                } else {
+                    $transaction->update(['status' => 'failed']);
+                    Log::info('❌ Korapay payment not confirmed', ['kora_status' => $koraStatus]);
+                }
             } else {
                 // Other payment methods
                 $newStatus = in_array($validated['status'], ['successful', 'completed'])
@@ -413,6 +481,8 @@ class PaymentController extends Controller
                 return $this->createFlutterwavePaymentLink($data);
             case 'paystack':
                 return $this->createPaystackPaymentLink($data);
+            case 'kora':
+                return $this->createKoraPaymentLink($data);
             default:
                 throw new \InvalidArgumentException("Unsupported payment method: {$method}");
         }
@@ -508,6 +578,188 @@ class PaymentController extends Controller
             return $body['data']['authorization_url'] ?? null;
         } catch (\Exception $e) {
             Log::error('💥 Paystack payment error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Handle Korapay webhook events.
+     * Called directly by Korapay — no auth middleware, signature verified below.
+     */
+    public function handleKoraWebhook(Request $request)
+    {
+        try {
+            $encryptionKey = config('services.korapay.encryption_key');
+            $signature     = $request->header('x-korapay-signature');
+            $rawBody       = $request->getContent();
+
+            // Verify HMAC-SHA256 signature
+            if ($encryptionKey && $signature) {
+                $expected = hash_hmac('sha256', $rawBody, $encryptionKey);
+                if (!hash_equals($expected, $signature)) {
+                    Log::warning('❌ Korapay webhook signature mismatch');
+                    return response()->json(['message' => 'Invalid signature'], 401);
+                }
+            }
+
+            $payload = json_decode($rawBody, true);
+            $event   = $payload['event'] ?? null;
+            $data    = $payload['data']  ?? [];
+
+            Log::info('🔔 Korapay webhook received', ['event' => $event, 'reference' => $data['reference'] ?? null]);
+
+            if ($event !== 'charge.success') {
+                return response()->json(['message' => 'Event ignored'], 200);
+            }
+
+            $reference = $data['reference'] ?? null;
+            if (!$reference) {
+                return response()->json(['message' => 'Missing reference'], 400);
+            }
+
+            $transaction = Transaction::where('transaction_id', $reference)->first();
+
+            if (!$transaction) {
+                Log::error('❌ Korapay webhook: transaction not found', ['reference' => $reference]);
+                return response()->json(['message' => 'Transaction not found'], 404);
+            }
+
+            if ($transaction->status === 'completed') {
+                return response()->json(['message' => 'Already processed'], 200);
+            }
+
+            // Verify the charge server-side before crediting
+            $verification = $this->verifyKoraPayment($reference);
+
+            if (!$verification || ($verification['data']['status'] ?? '') !== 'success') {
+                Log::error('❌ Korapay webhook: verification failed', ['reference' => $reference]);
+                $transaction->update(['status' => 'failed']);
+                return response()->json(['message' => 'Verification failed'], 200);
+            }
+
+            $amountPaid    = $verification['data']['amount'] ?? 0;
+            $expectedAmount = $transaction->amount;
+
+            if (abs($amountPaid - $expectedAmount) > 0.01) {
+                Log::error('❌ Korapay amount mismatch', [
+                    'paid'     => $amountPaid,
+                    'expected' => $expectedAmount,
+                ]);
+                $transaction->update(['status' => 'failed']);
+                return response()->json(['message' => 'Amount mismatch'], 200);
+            }
+
+            $transaction->update([
+                'status' => 'completed',
+                'meta'   => json_encode($verification['data']),
+            ]);
+
+            $user = $transaction->user;
+            if ($user) {
+                $user->increment('balance', $transaction->amount);
+                $this->calculateAffiliateCommission($user, $transaction->amount);
+
+                Log::info('💰 Korapay payment credited via webhook', [
+                    'user_id'     => $user->id,
+                    'amount'      => $transaction->amount,
+                    'new_balance' => $user->fresh()->balance,
+                ]);
+            }
+
+            return response()->json(['message' => 'Webhook processed'], 200);
+
+        } catch (\Exception $e) {
+            Log::error('💥 Korapay webhook error: ' . $e->getMessage());
+            return response()->json(['message' => 'Server error'], 500);
+        }
+    }
+
+    /**
+     * Create a Korapay checkout link.
+     */
+    private function createKoraPaymentLink(array $data): ?string
+    {
+        try {
+            $secretKey = config('services.korapay.secret_key');
+
+            if (empty($secretKey)) {
+                throw new \RuntimeException('Korapay secret key is not configured');
+            }
+
+            $backendUrl  = rtrim(config('app.url'), '/');
+            $frontendUrl = rtrim(config('app.frontend_url'), '/');
+
+            $client   = new Client();
+            $response = $client->post('https://api.korapay.com/merchant/api/v1/charges/initialize', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $secretKey,
+                    'Content-Type'  => 'application/json',
+                ],
+                'json' => [
+                    'amount'           => $data['amount'],
+                    'currency'         => $data['currency'] ?? 'NGN',
+                    'reference'        => $data['tx_ref'],
+                    'customer'         => [
+                        'name'  => $data['customer']['name'],
+                        'email' => $data['customer']['email'],
+                    ],
+                    'notification_url' => $backendUrl . '/api/payment/kora/webhook',
+                    'redirect_url'     => $frontendUrl . '/payment/callback',
+                    'channels'         => ['card', 'bank_transfer'],
+                ],
+            ]);
+
+            $body = json_decode((string) $response->getBody(), true);
+
+            if (!($body['status'] ?? false)) {
+                throw new \RuntimeException($body['message'] ?? 'Korapay payment initialization failed');
+            }
+
+            Log::info('✅ Korapay checkout link created', ['reference' => $data['tx_ref']]);
+
+            return $body['data']['checkout_url'] ?? null;
+
+        } catch (\Exception $e) {
+            Log::error('💥 Korapay payment link error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Verify a Korapay charge by reference.
+     */
+    private function verifyKoraPayment(string $reference): ?array
+    {
+        try {
+            $secretKey = config('services.korapay.secret_key');
+
+            if (empty($secretKey)) {
+                throw new \RuntimeException('Korapay secret key is not configured');
+            }
+
+            $client   = new Client();
+            $response = $client->get("https://api.korapay.com/merchant/api/v1/charges/{$reference}", [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $secretKey,
+                    'Content-Type'  => 'application/json',
+                ],
+            ]);
+
+            $body = json_decode((string) $response->getBody(), true);
+
+            if (!($body['status'] ?? false)) {
+                throw new \RuntimeException($body['message'] ?? 'Korapay verification failed');
+            }
+
+            Log::info('✅ Korapay payment verified', [
+                'reference' => $reference,
+                'status'    => $body['data']['status'] ?? 'unknown',
+            ]);
+
+            return $body;
+
+        } catch (\Exception $e) {
+            Log::error('💥 Korapay verification error: ' . $e->getMessage(), ['reference' => $reference]);
             throw $e;
         }
     }

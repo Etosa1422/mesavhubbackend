@@ -42,6 +42,12 @@ return [
         'encryption_key' => env('FLUTTERWAVE_ENCRYPTION_KEY'),
     ],
 
+    'korapay' => [
+        'public_key'     => env('KORAPAY_PUBLIC_KEY'),
+        'secret_key'     => env('KORAPAY_SECRET_KEY'),
+        'encryption_key' => env('KORAPAY_ENCRYPTION_KEY'),
+    ],
+
     // ── Virtual Numbers / SMS Providers ──────────────────────────────────────
 
     'sms_providers' => [

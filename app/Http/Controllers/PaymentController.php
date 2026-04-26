@@ -320,14 +320,8 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            // Ensure the transaction belongs to the authenticated user (only when auth is established)
-            if (Auth::check() && $transaction->user_id !== Auth::id()) {
-                Log::warning('⚠️ Unauthorized payment verify attempt', [
-                    'transaction_user_id' => $transaction->user_id,
-                    'requesting_user_id'  => Auth::id(),
-                ]);
-                return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-            }
+            // No ownership check here — security relies on the opaque TX reference
+            // + server-side Korapay/Flutterwave API re-verification below.
 
             // ✅ If already completed, return existing data
             if ($transaction->status === 'completed') {

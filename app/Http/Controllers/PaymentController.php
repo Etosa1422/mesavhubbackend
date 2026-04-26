@@ -236,20 +236,28 @@ class PaymentController extends Controller
                         throw new \Exception('Korapay amount mismatch. Paid: ' . $amountPaid . ', Expected: ' . $payment->amount);
                     }
 
-                    $payment->update([
-                        'status' => 'completed',
-                        'meta'   => json_encode($verification['data']),
-                    ]);
+                    $affected = Transaction::where('id', $payment->id)
+                        ->where('status', '!=', 'completed')
+                        ->update([
+                            'status' => 'completed',
+                            'meta'   => json_encode($verification['data']),
+                        ]);
 
-                    $user = $payment->user;
-                    $user->increment('balance', $payment->amount);
-                    $this->calculateAffiliateCommission($user, $payment->amount);
+                    if ($affected > 0) {
+                        $user = $payment->user;
+                        if ($user) {
+                            $user->increment('balance', $payment->amount);
+                            $this->calculateAffiliateCommission($user, $payment->amount);
 
-                    Log::info('💰 Korapay payment completed via callback', [
-                        'transaction_id' => $payment->id,
-                        'user_id'        => $user->id,
-                        'amount'         => $payment->amount,
-                    ]);
+                            Log::info('💰 Korapay payment completed via callback', [
+                                'transaction_id' => $payment->id,
+                                'user_id'        => $user->id,
+                                'amount'         => $payment->amount,
+                            ]);
+                        }
+                    } else {
+                        Log::info('⚠️ Korapay callback: already processed', ['transaction_id' => $payment->id]);
+                    }
                 } elseif (in_array($normalizedStatus, ['cancelled', 'failed'])) {
                     $payment->update(['status' => 'failed']);
                 } else {
@@ -386,15 +394,51 @@ class PaymentController extends Controller
                         'verification_response' => $verification
                     ]);
                 }
+            } elseif ($transaction->payment_method === 'kora') {
+                if (in_array($validated['status'], ['successful', 'completed', 'success'])) {
+                    // Verify with Korapay API
+                    $verification = $this->verifyKoraPayment($transaction->transaction_id);
+                    $koraStatus   = strtolower($verification['data']['status'] ?? '');
+
+                    if ($koraStatus === 'success') {
+                        $affected = Transaction::where('id', $transaction->id)
+                            ->where('status', '!=', 'completed')
+                            ->update([
+                                'status' => 'completed',
+                                'meta'   => json_encode($verification['data']),
+                            ]);
+
+                        if ($affected > 0 && $transaction->user) {
+                            $transaction->user->increment('balance', $transaction->amount);
+                            $this->calculateAffiliateCommission($transaction->user, $transaction->amount);
+
+                            Log::info('💰 Korapay balance credited (verify endpoint)', [
+                                'user_id' => $transaction->user_id,
+                                'amount'  => $transaction->amount,
+                            ]);
+                        }
+                    } else {
+                        $transaction->update(['status' => 'failed']);
+                        Log::info('❌ Korapay payment not confirmed', ['kora_status' => $koraStatus]);
+                    }
+                } elseif (in_array($validated['status'], ['failed', 'cancelled'])) {
+                    $transaction->update(['status' => 'failed']);
+                    Log::info('❌ Korapay payment failed/cancelled by user', [
+                        'transaction_id' => $transaction->id,
+                        'status'         => $validated['status'],
+                    ]);
+                }
             } elseif (
-                $transaction->payment_method === 'kora' &&
+                $transaction->payment_method === 'paystack' &&
                 in_array($validated['status'], ['successful', 'completed', 'success'])
             ) {
-                // Verify with Korapay API
-                $verification = $this->verifyKoraPayment($transaction->transaction_id);
-                $koraStatus   = strtolower($verification['data']['status'] ?? '');
+                // Verify with Paystack API
+                $verification = $this->verifyPaystackPayment($transaction->transaction_id);
+                $paystackStatus = strtolower($verification['data']['status'] ?? '');
 
-                if ($koraStatus === 'success') {
+                if ($paystackStatus === 'success') {
+                    $amountPaid = ($verification['data']['amount'] ?? 0) / 100; // Paystack returns kobo
+
                     $affected = Transaction::where('id', $transaction->id)
                         ->where('status', '!=', 'completed')
                         ->update([
@@ -406,14 +450,14 @@ class PaymentController extends Controller
                         $transaction->user->increment('balance', $transaction->amount);
                         $this->calculateAffiliateCommission($transaction->user, $transaction->amount);
 
-                        Log::info('💰 Korapay balance credited (verify endpoint)', [
+                        Log::info('💰 Paystack balance credited (verify endpoint)', [
                             'user_id' => $transaction->user_id,
                             'amount'  => $transaction->amount,
                         ]);
                     }
                 } else {
                     $transaction->update(['status' => 'failed']);
-                    Log::info('❌ Korapay payment not confirmed', ['kora_status' => $koraStatus]);
+                    Log::info('❌ Paystack payment not confirmed', ['paystack_status' => $paystackStatus]);
                 }
             } else {
                 // Unknown or unsupported payment method — never trust client status
@@ -749,6 +793,45 @@ class PaymentController extends Controller
 
         } catch (\Exception $e) {
             Log::error('💥 Korapay verification error: ' . $e->getMessage(), ['reference' => $reference]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Verify a Paystack charge by reference.
+     */
+    private function verifyPaystackPayment(string $reference): ?array
+    {
+        try {
+            $paystackKey = config('services.paystack.secret_key');
+
+            if (empty($paystackKey)) {
+                throw new \RuntimeException('Paystack secret key is not configured');
+            }
+
+            $client   = new Client();
+            $response = $client->get("https://api.paystack.co/transaction/verify/{$reference}", [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $paystackKey,
+                    'Content-Type'  => 'application/json',
+                ],
+            ]);
+
+            $body = json_decode((string) $response->getBody(), true);
+
+            if (!($body['status'] ?? false)) {
+                throw new \RuntimeException($body['message'] ?? 'Paystack verification failed');
+            }
+
+            Log::info('✅ Paystack payment verified', [
+                'reference' => $reference,
+                'status'    => $body['data']['status'] ?? 'unknown',
+            ]);
+
+            return $body;
+
+        } catch (\Exception $e) {
+            Log::error('💥 Paystack verification error: ' . $e->getMessage(), ['reference' => $reference]);
             throw $e;
         }
     }

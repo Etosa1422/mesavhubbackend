@@ -32,10 +32,12 @@ class Transaction extends Model
         'user_id',
         'transaction_id',
         'amount',
+        'currency',
         'charge',
         'transaction_type',
         'description',
         'status',
+        'payment_method',
         'meta',
     ];
 

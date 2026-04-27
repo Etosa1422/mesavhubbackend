@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Mail\VirtualNumberRentedMail;
 use App\Models\VirtualNumberPrice;
 use App\Models\VirtualNumberRental;
 use App\Services\SmsProviderManager;
@@ -11,6 +12,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class VirtualNumberController extends Controller
 {
@@ -80,6 +83,13 @@ class VirtualNumberController extends Controller
                 'expires_at'         => now()->addMinutes(10),
             ]);
         });
+
+        // Send virtual number rented email
+        try {
+            Mail::to($user->email)->send(new VirtualNumberRentedMail($rental, $user));
+        } catch (\Exception $e) {
+            Log::warning('Virtual number rented email failed: ' . $e->getMessage());
+        }
 
         return response()->json(['success' => true, 'data' => $rental], 201);
     }

@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Log;
+use App\Mail\SecurityAlertMail;
 
 class AccountController extends Controller
 {
@@ -75,6 +77,17 @@ class AccountController extends Controller
             $user->password = Hash::make($request->new_password);
             $user->save();
 
+            try {
+                Mail::to($user->email)->send(new SecurityAlertMail(
+                    $user,
+                    'password_changed',
+                    'Password Changed',
+                    'Your account password was just changed. If this was you, no action is needed. If you did not make this change, please reset your password and contact support immediately.'
+                ));
+            } catch (\Exception $e) {
+                Log::warning('Security alert email failed (password): ' . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Password updated successfully'
@@ -103,11 +116,22 @@ class AccountController extends Controller
             ]);
 
             $user = Auth::user();
+            $oldEmail = $user->email;
             $user->email = $request->email;
             $user->email_verified_at = null;
             $user->save();
 
-            // Send verification email here if needed
+            // Alert sent to the old email address
+            try {
+                Mail::to($oldEmail)->send(new SecurityAlertMail(
+                    $user,
+                    'email_changed',
+                    'Email Address Changed',
+                    "Your account email address was changed to {$request->email}. If you did not make this change, please contact support immediately to recover your account."
+                ));
+            } catch (\Exception $e) {
+                Log::warning('Security alert email failed (email change): ' . $e->getMessage());
+            }
 
             return response()->json([
                 'success' => true,
@@ -172,6 +196,18 @@ class AccountController extends Controller
             $user->two_factor_enabled = $request->enabled;
             $user->save();
 
+            $actionLabel = $request->enabled ? 'Enabled' : 'Disabled';
+            try {
+                Mail::to($user->email)->send(new SecurityAlertMail(
+                    $user,
+                    $request->enabled ? '2fa_enabled' : '2fa_disabled',
+                    "Two-Factor Authentication {$actionLabel}",
+                    "Two-factor authentication has been {$actionLabel} on your account. If you did not make this change, please secure your account immediately."
+                ));
+            } catch (\Exception $e) {
+                Log::warning('Security alert email failed (2FA): ' . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Two factor authentication updated successfully',
@@ -199,6 +235,17 @@ class AccountController extends Controller
             $user = Auth::user();
             $user->api_key = Str::random(40);
             $user->save();
+
+            try {
+                Mail::to($user->email)->send(new SecurityAlertMail(
+                    $user,
+                    'api_key_regenerated',
+                    'API Key Regenerated',
+                    'A new API key was generated for your account. Your old key is now invalid. If you did not make this change, please contact support immediately.'
+                ));
+            } catch (\Exception $e) {
+                Log::warning('Security alert email failed (API key): ' . $e->getMessage());
+            }
 
             return response()->json([
                 'success' => true,

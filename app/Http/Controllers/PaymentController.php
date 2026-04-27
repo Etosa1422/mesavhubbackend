@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Mail\WalletFundedMail;
 use GuzzleHttp\Client;
 use App\Models\Transaction;
 use App\Models\User;
@@ -11,6 +12,7 @@ use App\Models\AffiliateReferral;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use App\Models\SiteSetting;
 
 class PaymentController extends Controller
@@ -214,6 +216,13 @@ class PaymentController extends Controller
                         'amount' => $payment->amount,
                         'new_balance' => $user->balance
                     ]);
+
+                    // Send wallet funded email
+                    try {
+                        Mail::to($user->email)->send(new WalletFundedMail($payment, $user));
+                    } catch (\Exception $e) {
+                        Log::warning('Wallet funded email failed (Flutterwave): ' . $e->getMessage());
+                    }
                 } elseif (in_array($normalizedStatus, ['cancelled', 'failed'])) {
                     $payment->update(['status' => 'failed']);
                     Log::info('❌ Payment failed', ['transaction_id' => $payment->id]);
@@ -254,6 +263,13 @@ class PaymentController extends Controller
                                 'user_id'        => $user->id,
                                 'amount'         => $payment->amount,
                             ]);
+
+                            // Send wallet funded email
+                            try {
+                                Mail::to($user->email)->send(new WalletFundedMail($payment, $user));
+                            } catch (\Exception $e) {
+                                Log::warning('Wallet funded email failed (Korapay): ' . $e->getMessage());
+                            }
                         }
                     } else {
                         Log::info('⚠️ Korapay callback: already processed', ['transaction_id' => $payment->id]);
@@ -379,6 +395,13 @@ class PaymentController extends Controller
 
                             // 💰 Calculate and credit affiliate commission
                             $this->calculateAffiliateCommission($transaction->user, $transaction->amount);
+
+                            // Send wallet funded email
+                            try {
+                                Mail::to($transaction->user->email)->send(new WalletFundedMail($transaction, $transaction->user));
+                            } catch (\Exception $e) {
+                                Log::warning('Wallet funded email failed (Flutterwave verify): ' . $e->getMessage());
+                            }
                         }
                     } else {
                         $transaction->update(['status' => 'failed']);
@@ -416,6 +439,13 @@ class PaymentController extends Controller
                                 'user_id' => $transaction->user_id,
                                 'amount'  => $transaction->amount,
                             ]);
+
+                            // Send wallet funded email
+                            try {
+                                Mail::to($transaction->user->email)->send(new WalletFundedMail($transaction, $transaction->user));
+                            } catch (\Exception $e) {
+                                Log::warning('Wallet funded email failed (Korapay verify): ' . $e->getMessage());
+                            }
                         }
                     } else {
                         $transaction->update(['status' => 'failed']);
@@ -454,6 +484,13 @@ class PaymentController extends Controller
                             'user_id' => $transaction->user_id,
                             'amount'  => $transaction->amount,
                         ]);
+
+                        // Send wallet funded email
+                        try {
+                            Mail::to($transaction->user->email)->send(new WalletFundedMail($transaction, $transaction->user));
+                        } catch (\Exception $e) {
+                            Log::warning('Wallet funded email failed (Paystack verify): ' . $e->getMessage());
+                        }
                     }
                 } else {
                     $transaction->update(['status' => 'failed']);
@@ -697,6 +734,13 @@ class PaymentController extends Controller
                     'amount'      => $transaction->amount,
                     'new_balance' => $user->fresh()->balance,
                 ]);
+
+                // Send wallet funded email
+                try {
+                    Mail::to($user->email)->send(new WalletFundedMail($transaction, $user));
+                } catch (\Exception $e) {
+                    Log::warning('Wallet funded email failed (Korapay webhook): ' . $e->getMessage());
+                }
             }
 
             return response()->json(['message' => 'Webhook processed'], 200);

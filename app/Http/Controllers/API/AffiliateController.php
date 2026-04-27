@@ -4,11 +4,13 @@ namespace App\Http\Controllers\API;
 
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use App\Mail\AffiliatePayoutRequestedMail;
 use App\Models\AffiliatePayout;
 use App\Models\AffiliateProgram;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class AffiliateController extends Controller
 {
@@ -277,6 +279,13 @@ class AffiliateController extends Controller
                     'payout' => $payout,
                     'new_balance' => 0
                 ]);
+
+                // Send payout requested email
+                try {
+                    Mail::to($user->email)->send(new AffiliatePayoutRequestedMail($payout, $user));
+                } catch (\Exception $e) {
+                    Log::warning('Affiliate payout email failed: ' . $e->getMessage());
+                }
             } catch (\Exception $e) {
                 \Log::error('Error processing payout request: ' . $e->getMessage(), [
                     'trace' => $e->getTraceAsString(),

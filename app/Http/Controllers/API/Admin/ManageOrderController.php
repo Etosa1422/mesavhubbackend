@@ -5,8 +5,10 @@ namespace App\Http\Controllers\API\Admin;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\Category;
+use App\Mail\OrderStatusMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 
@@ -135,6 +137,15 @@ class ManageOrderController extends Controller
             }
 
             $order->load(['user', 'service', 'category']);
+
+            // Notify user of status change
+            if ($order->user && $order->user->email) {
+                try {
+                    Mail::to($order->user->email)->send(new OrderStatusMail($order, $order->user));
+                } catch (\Exception $e) {
+                    Log::warning('Order status email failed: ' . $e->getMessage());
+                }
+            }
 
             return response()->json([
                 'success' => true,

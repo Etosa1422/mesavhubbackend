@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payout Request Received</title>
+</head>
+<body style="margin:0;padding:0;background:#f0fdf4;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(22,163,74,0.1);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#15803d,#16a34a,#22c55e);padding:36px 40px;text-align:center;">
+              <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:800;letter-spacing:-0.5px;">{{ config('app.name') }}</h1>
+              <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;">Affiliate Payout Request</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px;">
+              <p style="margin:0 0 8px;font-size:16px;color:#14532d;font-weight:700;">
+                Hi {{ $user->first_name ?? $user->username }},
+              </p>
+              <p style="margin:0 0 28px;font-size:14px;color:#374151;line-height:1.7;">
+                We've received your affiliate payout request. Our team will review it and process the payment within <strong>3–5 business days</strong>. We'll notify you once it's been approved or paid out.
+              </p>
+
+              <!-- Payout Details -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border-left:4px solid #16a34a;border-radius:8px;margin:0 0 28px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:6px 0;font-size:13px;color:#166534;font-weight:600;width:160px;">Payout ID</td>
+                        <td style="padding:6px 0;font-size:13px;color:#14532d;font-weight:700;">#{{ $payout->id }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:6px 0;font-size:13px;color:#166534;font-weight:600;">Amount Requested</td>
+                        <td style="padding:6px 0;font-size:14px;color:#15803d;font-weight:800;">
+                          {{ $user->currency ?? '' }} {{ number_format($payout->amount, 2) }}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:6px 0;font-size:13px;color:#166534;font-weight:600;">Payment Method</td>
+                        <td style="padding:6px 0;font-size:13px;color:#14532d;">{{ ucwords(str_replace('_', ' ', $payout->payment_method ?? 'bank_transfer')) }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:6px 0;font-size:13px;color:#166534;font-weight:600;">Requested On</td>
+                        <td style="padding:6px 0;font-size:13px;color:#14532d;">{{ $payout->created_at->format('M d, Y — H:i') }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:6px 0;font-size:13px;color:#166534;font-weight:600;">Status</td>
+                        <td style="padding:6px 0;">
+                          <span style="display:inline-block;background:#fef9c3;color:#a16207;font-size:12px;font-weight:700;padding:3px 10px;border-radius:50px;">Pending Review</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <hr style="border:none;border-top:1px solid #bbf7d0;margin:0 0 24px;" />
+
+              <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">
+                If you did not request this payout, please contact our support team immediately.<br /><br />
+                — The {{ config('app.name') }} Team
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f0fdf4;padding:20px 40px;text-align:center;border-top:1px solid #bbf7d0;">
+              <p style="margin:0;font-size:12px;color:#4ade80;">&copy; {{ date('Y') }} {{ config('app.name') }}. All rights reserved.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

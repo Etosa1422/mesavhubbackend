@@ -5,6 +5,8 @@ namespace App\Http\Controllers\API;
 use App\Models\Order;
 use App\Models\Service;
 use App\Mail\CustomMail;
+use App\Mail\LowBalanceMail;
+use App\Mail\OrderPlacedMail;
 use App\Models\ApiProvider;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
@@ -14,7 +16,6 @@ use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
-
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 use App\Jobs\CreateGeneralNotificationJob;
@@ -239,6 +240,25 @@ class OrderController extends Controller
                     'title' => 'Order Placed Successfully',
                     'message' => "Your order #{$order->id} for {$service->service_title} has been placed successfully. Amount charged: \${$price}.",
                 ]);
+
+                // Send order confirmation email
+                try {
+                    $order->load('service');
+                    Mail::to($user->email)->send(new OrderPlacedMail($order, $user));
+                } catch (\Exception $e) {
+                    Log::warning('Order placed email failed: ' . $e->getMessage());
+                }
+
+                // Send low balance alert if balance is below threshold
+                $user->refresh();
+                $lowBalanceThreshold = config('app.low_balance_threshold', 1000);
+                if ($user->balance < $lowBalanceThreshold) {
+                    try {
+                        Mail::to($user->email)->send(new LowBalanceMail($user, $user->balance));
+                    } catch (\Exception $e) {
+                        Log::warning('Low balance email failed: ' . $e->getMessage());
+                    }
+                }
             }
 
             DB::commit();

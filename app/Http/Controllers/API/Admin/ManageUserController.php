@@ -8,6 +8,7 @@ use App\Models\Transaction;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use App\Mail\UserNotification;
+use App\Mail\WalletFundedMail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
@@ -151,6 +152,18 @@ class ManageUserController extends Controller
             ]);
 
             DB::commit();
+
+            // Send wallet funded email when admin adds balance
+            if ($request->action === 'add') {
+                try {
+                    $transaction = Transaction::where('user_id', $user->id)
+                        ->latest()
+                        ->first();
+                    Mail::to($user->email)->send(new WalletFundedMail($transaction, $user));
+                } catch (\Exception $e) {
+                    Log::warning('Wallet funded email failed (admin adjustment): ' . $e->getMessage());
+                }
+            }
 
             return response()->json([
                 'status' => 'success',

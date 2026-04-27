@@ -7,8 +7,10 @@ use App\Models\AffiliateProgram;
 use App\Models\AffiliateReferral;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use App\Mail\WelcomeMail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Database\QueryException;
 use Exception;
@@ -95,6 +97,9 @@ class RegisterController extends Controller
                 'referred_by' => $referredBy,
                 'status' => 1,
             ]);
+
+            // ✅ Send welcome email
+            Mail::to($user->email)->send(new WelcomeMail($user));
 
             // ✅ Create referral record if referred
             if ($referredBy && $affiliateProgram) {

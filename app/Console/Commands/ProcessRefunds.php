@@ -24,13 +24,17 @@ class ProcessRefunds extends Command
             $this->warn('⚠ DRY RUN MODE - No changes will be made');
         }
 
-        // Get failed/cancelled orders that haven't been refunded
-        $orders = Order::whereIn('status', ['failed', 'cancelled'])
-            ->where('status', '!=', 'refunded')
+        // Get failed/cancelled/refunded orders that haven't had balance restored yet
+        // 'refunded' is included because some providers return that status directly
+        // Use transaction_id convention to prevent double-refunding
+        $orders = Order::whereIn('status', ['failed', 'cancelled', 'refunded'])
             ->whereNotNull('price')
             ->where('price', '>', 0)
-            ->whereDoesntHave('user', function($q) {
-                // Exclude already refunded (check if user balance was adjusted)
+            ->whereNotExists(function($query) {
+                $query->select(DB::raw(1))
+                    ->from('transactions')
+                    ->whereRaw("transactions.transaction_id = CONCAT('ORDER_REFUND_', orders.id)")
+                    ->where('transactions.status', 'completed');
             })
             ->with('user')
             ->get();

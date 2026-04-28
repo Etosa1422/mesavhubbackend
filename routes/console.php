@@ -48,3 +48,8 @@ Schedule::command('tickets:auto-close')
     ->dailyAt('03:00')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/cron-tickets-close.log'));
+
+Schedule::command('payments:recover-pending --minutes=15')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/cron-payments-recover.log'));

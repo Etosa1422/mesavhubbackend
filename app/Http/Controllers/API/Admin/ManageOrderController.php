@@ -134,6 +134,10 @@ class ManageOrderController extends Controller
                         'reason'     => $request->reason ?? 'Admin cancelled',
                     ]),
                 ]);
+
+                // Mark as refunded so the cron job does not process it again
+                $order->status = 'refunded';
+                $order->save();
             }
 
             $order->load(['user', 'service', 'category']);

@@ -32,6 +32,7 @@ use App\Http\Controllers\API\Admin\VirtualNumberPriceController;
 use App\Http\Controllers\API\VirtualNumberController;
 use App\Http\Controllers\API\Admin\ManageTransactionsController;
 use App\Http\Controllers\API\Admin\ManageServiceUpdateController;
+use App\Http\Controllers\API\Admin\AnnouncementController;
 use App\Http\Controllers\API\SiteSettingController;
 use App\Http\Controllers\API\PasswordResetController;
 
@@ -45,6 +46,7 @@ Route::post('/reset-password', [PasswordResetController::class, 'resetPassword']
 Route::get('/all-services', [ServiceController::class, 'allServices']);
 Route::get('/currencies', [CurrencyController::class, 'fetchCurrencies']);
 Route::get('/site-settings', [SiteSettingController::class, 'index']);
+Route::get('/announcements/active', [AnnouncementController::class, 'active']);
 
 
 
@@ -253,6 +255,12 @@ Route::prefix('admin')->group(function () {
         // Manage Service Controller
         Route::post('/service-updates', [ManageServiceUpdateController::class, 'UpdateService']);
         Route::get('/service-update-history', [ManageServiceUpdateController::class, 'ServiceUpdateHistory']);
+
+        // Announcements (admin)
+        Route::get('/announcements', [AnnouncementController::class, 'index']);
+        Route::post('/announcements', [AnnouncementController::class, 'store']);
+        Route::patch('/announcements/{id}', [AnnouncementController::class, 'update']);
+        Route::delete('/announcements/{id}', [AnnouncementController::class, 'destroy']);
 
         // Transaction Management Routes
         Route::prefix('transactions')->group(function () {

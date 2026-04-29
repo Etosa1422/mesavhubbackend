@@ -29,10 +29,11 @@ Schedule::command('provider:sync-orders')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/cron-sync.log'));
 
-Schedule::command('orders:process-refunds')
-    ->hourly()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/cron-refunds.log'));
+// TEMPORARILY DISABLED - re-enable after confirming fix is deployed on production
+// Schedule::command('orders:process-refunds')
+//     ->hourly()
+//     ->withoutOverlapping()
+//     ->appendOutputTo(storage_path('logs/cron-refunds.log'));
 
 Schedule::command('notifications:send')
     ->everyFiveMinutes()

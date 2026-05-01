@@ -125,24 +125,32 @@ class ManageOrderController extends Controller
             if ($shouldRefund && $order->price > 0) {
                 $order->load('user');
                 if ($order->user) {
-                    $order->user->increment('balance', $order->price);
+                    // Use stable transaction_id so ProcessRefunds cron won't double-refund
+                    $txId = 'ORDER_REFUND_' . $order->id;
+                    $alreadyRefunded = \App\Models\Transaction::where('transaction_id', $txId)
+                        ->where('status', 'completed')
+                        ->exists();
 
-                    \App\Models\Transaction::create([
-                        'user_id'          => $order->user_id,
-                        'transaction_id'   => 'REFUND_' . time() . '_' . $order->id,
-                        'transaction_type' => 'Credit',
-                        'amount'           => $order->price,
-                        'charge'           => 0,
-                        'description'      => "Refund for {$newStatus} Order #{$order->id}",
-                        'status'           => 'completed',
-                        'meta'             => json_encode([
-                            'order_id' => $order->id,
-                            'reason'   => $request->reason ?? 'Admin cancelled',
-                        ]),
-                    ]);
+                    if (!$alreadyRefunded) {
+                        $order->user->increment('balance', $order->price);
 
-                    $order->status = 'refunded';
-                    $order->save();
+                        \App\Models\Transaction::create([
+                            'user_id'          => $order->user_id,
+                            'transaction_id'   => $txId,
+                            'transaction_type' => 'Credit',
+                            'amount'           => $order->price,
+                            'charge'           => 0,
+                            'description'      => "Refund for {$newStatus} Order #{$order->id}",
+                            'status'           => 'completed',
+                            'meta'             => json_encode([
+                                'order_id' => $order->id,
+                                'reason'   => $request->reason ?? 'Admin cancelled',
+                            ]),
+                        ]);
+
+                        $order->status = 'refunded';
+                        $order->save();
+                    }
                 }
             }
 

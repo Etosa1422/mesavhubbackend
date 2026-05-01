@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Models\Order;
 use App\Models\ApiProvider;
-use App\Models\Transaction;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -56,38 +55,6 @@ class CheckOrderStatus extends Command
                     // If completed, set remains to 0
                     if ($order->status === 'completed') {
                         $order->remains = 0;
-                    }
-
-                    // Refund user when provider marks order as cancelled or failed
-                    $refundStatuses = ['cancelled', 'failed'];
-                    if (
-                        in_array($order->status, $refundStatuses) &&
-                        !in_array($oldStatus, $refundStatuses) &&
-                        $oldStatus !== 'refunded' &&
-                        $order->price > 0 &&
-                        $order->user_id
-                    ) {
-                        $order->load('user');
-                        if ($order->user) {
-                            $order->user->increment('balance', $order->price);
-
-                            Transaction::create([
-                                'user_id'          => $order->user_id,
-                                'transaction_id'   => 'REFUND_' . time() . '_' . $order->id,
-                                'transaction_type' => 'Credit',
-                                'amount'           => $order->price,
-                                'charge'           => 0,
-                                'description'      => "Refund for {$order->status} Order #{$order->id}",
-                                'status'           => 'completed',
-                                'meta'             => json_encode([
-                                    'order_id' => $order->id,
-                                    'reason'   => 'Provider marked order as ' . $order->status,
-                                ]),
-                            ]);
-
-                            $order->status = 'refunded';
-                            $this->line("  💰 Order #{$order->id}: refunded {$order->price} to user #{$order->user_id}");
-                        }
                     }
 
                     $order->save();

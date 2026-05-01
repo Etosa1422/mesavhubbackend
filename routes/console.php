@@ -29,11 +29,11 @@ Schedule::command('provider:sync-orders')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/cron-sync.log'));
 
-// TEMPORARILY DISABLED - re-enable after confirming fix is deployed on production
-// Schedule::command('orders:process-refunds')
-//     ->hourly()
-//     ->withoutOverlapping()
-//     ->appendOutputTo(storage_path('logs/cron-refunds.log'));
+// Re-enabled: ProcessRefunds safely guards against double-refunding via transaction_id checks
+Schedule::command('orders:process-refunds')
+    ->hourly()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/cron-refunds.log'));
 
 Schedule::command('notifications:send')
     ->everyFiveMinutes()

@@ -99,9 +99,10 @@ class ManageOrderController extends Controller
     {
         try {
             $request->validate([
-                'status' => 'required|string|max:50',
+                'status'            => 'required|string|max:50',
                 'statusDescription' => 'nullable|string|max:500',
-                'reason' => 'nullable|string|max:500',
+                'reason'            => 'nullable|string|max:500',
+                'refund'            => 'sometimes|boolean',
             ]);
 
             $order = Order::findOrFail($id);
@@ -109,35 +110,40 @@ class ManageOrderController extends Controller
             $newStatus = strtolower($request->status);
             $order->status = $newStatus;
             $order->status_description = $request->statusDescription;
-            $order->reason = $request->reason; // Fixed: was status_reason
+            $order->reason = $request->reason;
             $order->save();
 
-            // Refund user balance when admin cancels a non-cancelled order
-            if (
-                $newStatus === 'cancelled' &&
-                strtolower($previousStatus) !== 'cancelled' &&
-                strtolower($previousStatus) !== 'refunded' &&
-                $order->price > 0
-            ) {
-                $order->user->increment('balance', $order->price);
+            // Refund user balance when status is cancelled/failed
+            // The admin can pass refund=true to force a refund even if already cancelled
+            $refundStatuses = ['cancelled', 'failed'];
+            $shouldRefund = $request->boolean('refund',
+                in_array($newStatus, $refundStatuses) &&
+                !in_array(strtolower($previousStatus), $refundStatuses) &&
+                strtolower($previousStatus) !== 'refunded'
+            );
 
-                \App\Models\Transaction::create([
-                    'user_id'          => $order->user_id,
-                    'transaction_id'   => 'REFUND_' . time() . '_' . $order->id,
-                    'transaction_type' => 'Credit',
-                    'amount'           => $order->price,
-                    'charge'           => 0,
-                    'description'      => "Refund for cancelled Order #{$order->id}",
-                    'status'           => 'completed',
-                    'meta'             => json_encode([
-                        'order_id'   => $order->id,
-                        'reason'     => $request->reason ?? 'Admin cancelled',
-                    ]),
-                ]);
+            if ($shouldRefund && $order->price > 0) {
+                $order->load('user');
+                if ($order->user) {
+                    $order->user->increment('balance', $order->price);
 
-                // Mark as refunded so the cron job does not process it again
-                $order->status = 'refunded';
-                $order->save();
+                    \App\Models\Transaction::create([
+                        'user_id'          => $order->user_id,
+                        'transaction_id'   => 'REFUND_' . time() . '_' . $order->id,
+                        'transaction_type' => 'Credit',
+                        'amount'           => $order->price,
+                        'charge'           => 0,
+                        'description'      => "Refund for {$newStatus} Order #{$order->id}",
+                        'status'           => 'completed',
+                        'meta'             => json_encode([
+                            'order_id' => $order->id,
+                            'reason'   => $request->reason ?? 'Admin cancelled',
+                        ]),
+                    ]);
+
+                    $order->status = 'refunded';
+                    $order->save();
+                }
             }
 
             $order->load(['user', 'service', 'category']);

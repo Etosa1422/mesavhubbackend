@@ -52,6 +52,29 @@ class OrderController extends Controller
 
             $user = Auth::user();
 
+            // 0. Idempotency check — if the client sent a key and we already have a
+            //    successful/pending order for it, return the cached response without
+            //    touching balance or creating a duplicate.
+            $idempotencyKey = $request->header('X-Idempotency-Key');
+            if ($idempotencyKey) {
+                $existingOrder = Order::where('idempotency_key', $idempotencyKey)
+                    ->where('user_id', $user->id)
+                    ->first();
+
+                if ($existingOrder && $existingOrder->status !== Order::STATUS_CANCELLED) {
+                    DB::rollBack(); // nothing to commit
+                    $user->refresh();
+                    return response()->json([
+                        'status'         => 'success',
+                        'message'        => 'Order submitted successfully',
+                        'order_id'       => $existingOrder->id,
+                        'balance'        => $user->balance,
+                        'order_status'   => $existingOrder->status,
+                        'charged_amount' => $existingOrder->price,
+                    ]);
+                }
+            }
+
             // 1. Check if user is active/verified
             if ((int) $user->status !== 1) {
                 DB::rollBack();
@@ -158,6 +181,7 @@ class OrderController extends Controller
             $order->runs = $request->runs ?? null;
             $order->interval = $request->interval ?? null;
             $order->drip_feed = $service->drip_feed;
+            $order->idempotency_key = $idempotencyKey ?? null;
 
             // 9. Process with API provider if applicable
             if ($service->api_provider_id && $apiProvider) {

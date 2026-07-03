@@ -14,6 +14,7 @@ class Order extends Model
     protected $primaryKey = 'id';
 
     protected $fillable = [
+        'idempotency_key',
         'user_id',
         'category_id',
         'service_id',

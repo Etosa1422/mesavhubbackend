@@ -235,6 +235,7 @@ Route::prefix('admin')->group(function () {
 
             Route::patch('/{id}/toggle-status', [APIProviderController::class, 'toggleStatus']);
             Route::post('/{id}/sync-services', [APIProviderController::class, 'syncServices']);
+            Route::post('/{id}/sync-prices', [APIProviderController::class, 'syncPrices']);
 
             Route::post('/API-provider/services', [APIProviderController::class, 'getAPIServices']);
             Route::post('/services/import', [APIProviderController::class, 'import']);

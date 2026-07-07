@@ -387,6 +387,67 @@ class ApiProviderController extends Controller
     //     }
     // }
 
+    /**
+     * Sync api_provider_price for all existing services from the live provider API,
+     * then recalculate rate_per_1000 and price using the stored markup_percentage.
+     */
+    public function syncPrices($id)
+    {
+        $provider = ApiProvider::findOrFail($id);
+        $conventionRate = (float) ($provider->convention_rate ?: 1.0);
+
+        try {
+            $response = Http::timeout(30)->asForm()->post($provider->url, [
+                'key'    => $provider->api_key,
+                'action' => 'services',
+            ]);
+
+            if (!$response->successful()) {
+                return response()->json(['status' => 'error', 'message' => 'Failed to fetch services from provider.'], 502);
+            }
+
+            $apiServices = $response->json();
+            if (!is_array($apiServices)) {
+                return response()->json(['status' => 'error', 'message' => 'Invalid response from provider.'], 502);
+            }
+
+            // Build a map: api_service_id => rate
+            $rateMap = [];
+            foreach ($apiServices as $svc) {
+                if (isset($svc['service'], $svc['rate'])) {
+                    $rateMap[(string) $svc['service']] = (float) $svc['rate'];
+                }
+            }
+
+            $updated = 0;
+            $services = Service::where('api_provider_id', $id)
+                ->whereNotNull('api_service_id')
+                ->get();
+
+            foreach ($services as $service) {
+                $newRate = $rateMap[(string) $service->api_service_id] ?? null;
+                if ($newRate === null) continue;
+
+                $markup = (float) ($service->markup_percentage ?? 75);
+                $factor = 1 + ($markup / 100);
+
+                $service->api_provider_price = $newRate;
+                $service->rate_per_1000      = round($newRate * $factor * $conventionRate, 4);
+                $service->price              = round($newRate / 1000 * $factor * $conventionRate, 8);
+                $service->save();
+                $updated++;
+            }
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => "Synced prices for {$updated} services.",
+                'updated' => $updated,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+        }
+    }
+
     public function fetchAllServicesFromProvider(Request $request)
     {
         // Validate provider input

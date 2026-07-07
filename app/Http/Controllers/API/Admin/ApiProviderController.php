@@ -528,16 +528,20 @@ class ApiProviderController extends Controller
                 // Calculate price with bounds checking
                 $baseRate = floatval($apiService['rate'] ?? 0);
                 $percentageIncrease = floatval($data['price_percentage_increase']);
-                $conventionRate = floatval($provider->convention_rate);
+                $conventionRate = floatval($provider->convention_rate) ?: 1.0;
 
-                $increased_price = ($baseRate * $percentageIncrease) / 100;
-                $final_price = ($baseRate + $increased_price) * $conventionRate;
+                // rate_per_1000: per-1000 price in local currency with markup
+                $rate_per_1000_local = $baseRate * (1 + $percentageIncrease / 100) * $conventionRate;
+
+                // price: per-UNIT price in local currency with markup
+                $final_price = $rate_per_1000_local / 1000;
 
                 // Cap the price at maximum value
                 $priceAdjusted = false;
 
-                if ($final_price > $maxPrice) {
-                    $final_price = $maxPrice;
+                if ($rate_per_1000_local > $maxPrice) {
+                    $rate_per_1000_local = $maxPrice;
+                    $final_price = $maxPrice / 1000;
                     $priceAdjusted = true;
                     $priceAdjustedCount++;
                 }
@@ -552,7 +556,7 @@ class ApiProviderController extends Controller
                     'max_amount' => intval($apiService['max'] ?? 0),
                     'average_time' => $apiService['average_time'] ?? $apiService['time'] ?? null,
                     'description' => $apiService['desc'] ?? $apiService['description'] ?? null,
-                    'rate_per_1000' => min(floatval($apiService['rate'] ?? $baseRate), $maxPrice),
+                    'rate_per_1000' => $rate_per_1000_local,
                     'price' => $final_price,
                     'price_percentage_increase' => $percentageIncrease,
                     'service_status' => 1,
@@ -603,6 +607,7 @@ class ApiProviderController extends Controller
         $services = $request->services;
 
         $provider = ApiProvider::findOrFail($providerId);
+        $conventionRate = (float) ($provider->convention_rate ?: 1.0);
         $categoryCache = Category::pluck('id', 'category_title')->toArray();
 
         $toInsert = [];
@@ -620,17 +625,21 @@ class ApiProviderController extends Controller
                 $categoryCache[$categoryTitle] = $category->id;
             }
 
+            $rawRate         = (float) ($service['rate'] ?? 0);
+            // rate_per_1000: per-1000 price in local currency (no markup yet — run applyMarkup after import)
+            $ratePerThousand = $rawRate * $conventionRate;
+
             $toInsert[] = [
                 'category_id'        => $categoryCache[$categoryTitle],
                 'service_title'      => $service['name'] ?? '',
                 'min_amount'         => $service['min'] ?? 0,
                 'max_amount'         => $service['max'] ?? 0,
                 'average_time'       => $service['average_time'] ?? null,
-                'rate_per_1000'      => $service['rate'] ?? 0,
-                'price'              => $service['rate'] ?? 0,
+                'rate_per_1000'      => $ratePerThousand,
+                'price'              => $ratePerThousand / 1000,
                 'api_service_id'     => $service['service'],
                 'api_provider_id'    => $providerId,
-                'api_provider_price' => $service['rate'] ?? 0,
+                'api_provider_price' => $rawRate,
                 'service_status'     => 1,
                 'service_type'       => $service['type'] ?? 'default',
                 'refill'             => isset($service['refill']) ? (bool)$service['refill'] : false,

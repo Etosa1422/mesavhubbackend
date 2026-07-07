@@ -105,10 +105,9 @@ class Service extends Model
      * price and rate_per_1000 are ALWAYS derived from api_provider_price,
      * so calling this multiple times with the same value is idempotent — no compounding.
      *
-     * api_provider_price = provider's raw rate per 1000 units (from provider API)
-     * rate_per_1000      = api_provider_price * (1 + markup/100)
-     * price              = api_provider_price * (1 + markup/100) * convention_rate
-     *                      (convention_rate converts provider currency; equals 1 if already in local currency)
+     * api_provider_price = provider's raw rate per 1000 units (from provider API, in provider currency e.g. USD)
+     * rate_per_1000      = api_provider_price * (1 + markup/100) * convention_rate  (per 1000, in local currency)
+     * price              = api_provider_price / 1000 * (1 + markup/100) * convention_rate  (per UNIT, in local currency)
      */
     public static function applyMarkup(float $markup, array $conditions = []): int
     {
@@ -131,8 +130,10 @@ class Service extends Model
 
         return $query->update([
             'services.markup_percentage' => $markup,
-            'services.rate_per_1000'     => DB::raw("ROUND(services.api_provider_price * {$factor}, 4)"),
-            'services.price'             => DB::raw("ROUND(services.api_provider_price * {$factor} * COALESCE(api_providers.convention_rate, 1), 8)"),
+            // rate_per_1000: per-1000 price in local currency with markup
+            'services.rate_per_1000'     => DB::raw("ROUND(services.api_provider_price * {$factor} * COALESCE(api_providers.convention_rate, 1), 4)"),
+            // price: per-UNIT price in local currency with markup (used directly as unit rate in order calculations)
+            'services.price'             => DB::raw("ROUND(services.api_provider_price / 1000 * {$factor} * COALESCE(api_providers.convention_rate, 1), 8)"),
         ]);
     }
 }

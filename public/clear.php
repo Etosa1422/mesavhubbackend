@@ -1,5 +1,7 @@
 <?php
 // Simple cache/route clearer - DELETE THIS FILE after use
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 define('LARAVEL_START', microtime(true));
 require __DIR__.'/../vendor/autoload.php';
 $app = require_once __DIR__.'/../bootstrap/app.php';

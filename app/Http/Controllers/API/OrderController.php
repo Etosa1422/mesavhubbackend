@@ -167,6 +167,21 @@ class OrderController extends Controller
                         'message' => 'Service provider is currently unavailable. Please try again later.'
                     ], 503);
                 }
+
+                $mappingStatus = $this->providerHasServiceId($apiProvider, (string) $service->api_service_id);
+                if ($mappingStatus === false) {
+                    $this->deactivateInvalidServiceMapping(
+                        $service,
+                        $apiProvider,
+                        'Mapped provider service ID not found in current provider catalog.'
+                    );
+
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'This service is temporarily unavailable due to provider catalog changes. Please choose another service.'
+                    ], 503);
+                }
             }
 
             // 7. Deduct balance
@@ -213,17 +228,11 @@ class OrderController extends Controller
                         $order->status = Order::STATUS_CANCELLED;
 
                         if (str_contains(strtolower($apiError), 'incorrect service id')) {
-                            $service->update(['service_status' => 0]);
-                            Cache::forget('all_services_essential');
-                            Cache::forget('services_category_all');
-                            Cache::forget('services_category_' . $service->category_id);
-
-                            Log::warning('Deactivated service after provider rejected its mapped service ID.', [
-                                'service_id' => $service->id,
-                                'api_provider_id' => $service->api_provider_id,
-                                'api_service_id' => $service->api_service_id,
-                                'provider_error' => $apiError,
-                            ]);
+                            $this->deactivateInvalidServiceMapping(
+                                $service,
+                                $apiProvider,
+                                'Provider rejected mapped service ID: ' . $apiError
+                            );
                         }
 
                         // Refund user for API failure
@@ -341,6 +350,65 @@ class OrderController extends Controller
                 ] : null
             ], 500);
         }
+    }
+
+    private function providerHasServiceId(ApiProvider $provider, string $serviceId): ?bool
+    {
+        $cacheKey = 'provider_service_ids_' . $provider->id;
+
+        try {
+            $providerServiceIds = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($provider) {
+                $response = Http::timeout(30)->asForm()->post($provider->url, [
+                    'key' => $provider->api_key,
+                    'action' => 'services',
+                ]);
+
+                if (!$response->successful()) {
+                    throw new \RuntimeException('Provider catalog request failed with status ' . $response->status());
+                }
+
+                $services = $response->json();
+                if (!is_array($services)) {
+                    throw new \RuntimeException('Provider catalog response is not a valid array.');
+                }
+
+                $ids = [];
+                foreach ($services as $item) {
+                    if (isset($item['service'])) {
+                        $ids[(string) $item['service']] = true;
+                    }
+                }
+
+                return $ids;
+            });
+        } catch (\Throwable $e) {
+            Log::warning('Provider service catalog validation skipped due to fetch error.', [
+                'provider_id' => $provider->id,
+                'provider_url' => $provider->url,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        return isset($providerServiceIds[$serviceId]);
+    }
+
+    private function deactivateInvalidServiceMapping(Service $service, ApiProvider $provider, string $reason): void
+    {
+        $service->update(['service_status' => 0]);
+
+        Cache::forget('all_services_essential');
+        Cache::forget('services_category_all');
+        Cache::forget('services_category_' . $service->category_id);
+        Cache::forget('provider_service_ids_' . $provider->id);
+
+        Log::warning('Deactivated service after invalid provider mapping was detected.', [
+            'service_id' => $service->id,
+            'api_provider_id' => $service->api_provider_id,
+            'api_service_id' => $service->api_service_id,
+            'reason' => $reason,
+        ]);
     }
 
 

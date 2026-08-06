@@ -19,7 +19,7 @@ class ServiceController extends Controller
             $cacheTime = 300; // 5 minutes
 
             $services = Cache::remember($cacheKey, $cacheTime, function () use ($request) {
-                $query = Service::where('service_status', 1)
+                $query = Service::availableForOrdering()
                     ->select([
                         'id',
                         'service_title',
@@ -59,7 +59,7 @@ class ServiceController extends Controller
     {
         try {
             $services = Cache::remember('all_services_essential', 600, function () {
-                return Service::select([
+                return Service::availableForOrdering()->select([
                     'id',
                     'service_title',
                     'category_id',
@@ -147,7 +147,7 @@ class ServiceController extends Controller
             $cacheKey = 'smm_services_' . md5(serialize($request->all()));
 
             $result = Cache::remember($cacheKey, 300, function () use ($request) {
-                $query = Service::select([
+                $query = Service::availableForOrdering()->select([
                     'id',
                     'service_title',
                     'category_id',
@@ -159,11 +159,10 @@ class ServiceController extends Controller
                     'average_time',
                     'description',
                     'service_status'
-                ])
+                    ])
                     ->with([
                         'category:id,category_title'
-                    ])
-                    ->where('service_status', 1);
+                    ]);
 
                 // Handle is_new filter if column exists
                 if ($request->has('is_new')) {
@@ -277,7 +276,7 @@ class ServiceController extends Controller
 
             $cacheKey = 'service_search_' . md5($searchTerm . '_' . $limit);
             $services = Cache::remember($cacheKey, 120, function () use ($searchTerm, $limit) {
-                return Service::select([
+                return Service::availableForOrdering()->select([
                     'id',
                     'service_title',
                     'category_id',
@@ -288,7 +287,6 @@ class ServiceController extends Controller
                     'description'
                 ])
                     ->with(['category:id,category_title'])
-                    ->where('service_status', 1)
                     ->where(function ($query) use ($searchTerm) {
                         $query->where('service_title', 'LIKE', $searchTerm . '%')
                             ->orWhere('service_title', 'LIKE', '% ' . $searchTerm . '%')

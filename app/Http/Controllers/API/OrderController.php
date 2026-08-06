@@ -15,6 +15,7 @@ use App\Models\GeneralNotification;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
@@ -101,8 +102,8 @@ class OrderController extends Controller
             }
 
             // 3. Check if service exists and is active
-            $service = Service::userRate()->where('id', $request->service)
-                ->where('service_status', 1) // Active service
+            $service = Service::userRate()->availableForOrdering()
+                ->where('id', $request->service)
                 ->first();
 
             if (!$service) {
@@ -150,6 +151,8 @@ class OrderController extends Controller
                     'shortfall' => $needed
                 ], 400);
             }
+
+            $apiProvider = null;
 
             // 6. Check if API provider is available (if service uses API)
             if ($service->api_provider_id) {
@@ -208,6 +211,20 @@ class OrderController extends Controller
                         $apiError = $apiData['error'] ?? 'Unknown API error';
                         $order->status_description = "error: {$apiError}";
                         $order->status = Order::STATUS_CANCELLED;
+
+                        if (str_contains(strtolower($apiError), 'incorrect service id')) {
+                            $service->update(['service_status' => 0]);
+                            Cache::forget('all_services_essential');
+                            Cache::forget('services_category_all');
+                            Cache::forget('services_category_' . $service->category_id);
+
+                            Log::warning('Deactivated service after provider rejected its mapped service ID.', [
+                                'service_id' => $service->id,
+                                'api_provider_id' => $service->api_provider_id,
+                                'api_service_id' => $service->api_service_id,
+                                'provider_error' => $apiError,
+                            ]);
+                        }
 
                         // Refund user for API failure
                         $user->increment('balance', $price);

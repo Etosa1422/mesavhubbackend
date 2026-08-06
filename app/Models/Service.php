@@ -76,6 +76,20 @@ class Service extends Model
         ]);
     }
 
+    public function scopeAvailableForOrdering($query)
+    {
+        return $query->where('service_status', 1)
+            ->where(function ($serviceQuery) {
+                $serviceQuery->whereNull('api_provider_id')
+                    ->orWhere(function ($providerBackedQuery) {
+                        $providerBackedQuery->whereNotNull('api_service_id')
+                            ->whereHas('provider', function ($providerQuery) {
+                                $providerQuery->where('status', 1);
+                            });
+                    });
+            });
+    }
+
 
 
     public function getProviderNameAttribute($value)

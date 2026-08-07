@@ -169,6 +169,14 @@ class OrderController extends Controller
                 }
 
                 $mappingStatus = $this->providerHasServiceId($apiProvider, (string) $service->api_service_id);
+                if ($mappingStatus === null) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Service provider verification is temporarily unavailable. Please try again shortly.'
+                    ], 503);
+                }
+
                 if ($mappingStatus === false) {
                     $this->deactivateInvalidServiceMapping(
                         $service,
@@ -357,7 +365,7 @@ class OrderController extends Controller
         $cacheKey = 'provider_service_ids_' . $provider->id;
 
         try {
-            $providerServiceIds = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($provider) {
+            $providerServiceIds = Cache::remember($cacheKey, now()->addMinute(), function () use ($provider) {
                 $response = Http::timeout(30)->asForm()->post($provider->url, [
                     'key' => $provider->api_key,
                     'action' => 'services',
